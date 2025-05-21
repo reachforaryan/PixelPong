@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PixelPong (yo ball)</title>
+    <style>
+      body {
+        margin: 0;
+        background: linear-gradient(to bottom, #0b0c2a 0%, #121242 100%);
+        color: #00ffff;
+        font-family: "Courier New", monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: start;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      h1 {
+        font-size: 32px;
+        margin: 20px 0 5px 0;
+        text-shadow: 0 0 8px #0ff, 0 0 16px #0ff;
+      }
+
+      h1 span {
+        font-style: italic;
+        font-size: 0.6em;
+        vertical-align: sub;
+      }
+
+      #controls {
+        font-size: 12px;
+        margin-bottom: 10px;
+        color: #88ffff;
+        display: none;
+      }
+
+      canvas {
+        border: 2px solid #0ff;
+        background: #000;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PixelPong<span>(yo ball)</span></h1>
+    <div id="controls">
+      <strong>Controls:</strong><br />
+      W/S = P1 Move<br />
+      ↑/↓ = P2 Move (2P mode)<br />
+      M = Toggle 1P/2P<br />
+      1 / 2 / 3 = Easy / Normal / Impossible<br />
+      H = Toggle Help<br />
+      ESC = Pause<br />
+      SPACE = Resume<br />
+    </div>
+    <canvas id="pong" width="1024" height="512"></canvas>
+
+    <script>
+      const canvas = document.getElementById("pong");
+      const ctx = canvas.getContext("2d");
+
+      const paddleWidth = 8,
+        paddleHeight = 70,
+        ballSize = 9;
+      const paddleSpeed = 4,
+        ballBaseSpeed = 5;
+      let speedMultiplier = 1;
+      let speedTimer = 0;
+      const speedIncreaseInterval = 500; // Frames until next increase
+      const speedStep = 0.05; // How much to increase per step
+
+      let isTwoPlayer = false;
+      let difficulty = "normal";
+      let highScore = 0;
+      let gamePaused = false;
+      let showHelp = false;
+
+      let player1 = {
+        x: 8,
+        y: canvas.height / 2 - paddleHeight / 2,
+        score: 0,
+        dy: 0,
+      };
+      let player2 = {
+        x: canvas.width - paddleWidth - 8,
+        y: canvas.height / 2 - paddleHeight / 2,
+        score: 0,
+        dy: 0,
+      };
+      let ball = { x: 0, y: 0, vx: 0, vy: 0 };
+
+      let ballTrail = [];
+      let fireTrail = [];
+      let fireBoostFrames = 0;
+      let maxFireFrames = 150;
+
+      function resetBall(dir = 1) {
+        ball.x = canvas.width / 2 - ballSize / 2;
+        ball.y = canvas.height / 2 - ballSize / 2;
+        ball.vx = ballBaseSpeed * dir;
+        ball.vy = ballBaseSpeed * (Math.random() > 0.5 ? 1 : -1);
+        ballTrail = [];
+      }
+
+      function resetGame() {
+        highScore = Math.max(highScore, player1.score, player2.score);
+        player1.score = 0;
+        player2.score = 0;
+        speedMultiplier = 1;
+        speedTimer = 0;
+        resetBall(Math.random() > 0.5 ? 1 : -1);
+        gamePaused = true;
+      }
+
+      function update() {
+        if (gamePaused) return;
+
+        // Move paddles
+        player1.y += player1.dy;
+        player2.y += player2.dy;
+
+        player1.y = Math.max(
+          0,
+          Math.min(canvas.height - paddleHeight, player1.y)
+        );
+        player2.y = Math.max(
+          0,
+          Math.min(canvas.height - paddleHeight, player2.y)
+        );
+
+        // Move ball
+        ball.x += ball.vx * speedMultiplier;
+        ball.y += ball.vy * speedMultiplier;
+
+        if (fireBoostFrames > 0) {
+          const boostFactor = 1 + fireBoostFrames / maxFireFrames;
+          ball.x += ball.vx * (boostFactor - 1);
+          ball.y += ball.vy * (boostFactor - 1);
+          fireBoostFrames--;
+
+          fireTrail.push({
+            x: ball.x,
+            y: ball.y,
+            alpha: fireBoostFrames / maxFireFrames,
+          });
+          if (fireTrail.length > 20) fireTrail.shift();
+        } else {
+          fireTrail = [];
+        }
+
+        ballTrail.push({ x: ball.x, y: ball.y });
+        if (ballTrail.length > 10) ballTrail.shift();
+
+        // Bounce off top/bottom
+        if (ball.y <= 0 || ball.y + ballSize >= canvas.height) ball.vy *= -1;
+
+        // Paddle collisions
+        const checkPaddleCollision = (player) => {
+          const isCornerHit =
+            ball.y + ballSize < player.y + 10 ||
+            ball.y > player.y + paddleHeight - 10;
+
+          if (
+            ball.x <= player.x + paddleWidth &&
+            ball.y + ballSize >= player.y &&
+            ball.y <= player.y + paddleHeight &&
+            player === player1
+          ) {
+            ball.vx *= -1;
+            ball.x = player.x + paddleWidth;
+
+            if (isCornerHit) {
+              fireBoostFrames = maxFireFrames;
+              // Optional: Cry sound or effect here
+            }
+          }
+
+          if (
+            ball.x + ballSize >= player.x &&
+            ball.y + ballSize >= player.y &&
+            ball.y <= player.y + paddleHeight &&
+            player === player2
+          ) {
+            ball.vx *= -1;
+            ball.x = player.x - ballSize;
+
+            if (isCornerHit) {
+              fireBoostFrames = maxFireFrames;
+              // Optional: Cry sound or effect here
+            }
+          }
+
+          // Show temporary cry text at collision point
+          setTimeout(() => {
+            ctx.fillStyle = "#00ffff";
+            ctx.font = "14px monospace";
+            ctx.fillText("CRIT", ball.x, ball.y);
+          }, 10);
+        };
+
+        checkPaddleCollision(player1);
+        checkPaddleCollision(player2);
+
+        // AI movement
+        if (!isTwoPlayer) {
+          if (difficulty === "easy") {
+            if (Math.random() < 0.2) return;
+          }
+          if (difficulty === "normal") {
+            player2.dy =
+              ball.y > player2.y + paddleHeight / 2
+                ? paddleSpeed * 0.8
+                : -paddleSpeed * 0.8;
+          }
+          if (difficulty === "impossible") {
+            const targetOffset = ball.vy > 0 ? paddleHeight - 8 : 8;
+            const targetY = ball.y - targetOffset + ballSize / 2;
+
+            // Directly set paddle Y so AI always hits crit
+            player2.y = Math.max(
+              0,
+              Math.min(canvas.height - paddleHeight, targetY)
+            );
+          }
+        }
+
+        // Scoring
+        if (ball.x <= 0) {
+          player2.score++;
+          resetGame();
+        }
+        if (ball.x + ballSize >= canvas.width) {
+          player1.score++;
+          resetGame();
+        }
+
+        // Speed ramp-up in impossible mode
+        if (!isTwoPlayer && difficulty === "impossible") {
+          speedTimer++;
+          if (speedTimer >= speedIncreaseInterval) {
+            speedMultiplier += speedStep;
+            speedTimer = 0;
+          }
+        }
+      }
+
+      function drawGrid() {
+        ctx.strokeStyle = "#113344";
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 32) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += 32) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      }
+
+      function draw() {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+
+        // Trail
+        for (let i = 0; i < ballTrail.length; i++) {
+          ctx.fillStyle = `rgba(0,255,255,${i / ballTrail.length})`;
+          ctx.fillRect(ballTrail[i].x, ballTrail[i].y, ballSize, ballSize);
+        }
+
+        // Fire Trail
+        for (let i = 0; i < fireTrail.length; i++) {
+          ctx.fillStyle = `rgba(255, ${Math.floor(
+            128 + 127 * fireTrail[i].alpha
+          )}, 0, ${fireTrail[i].alpha})`;
+          ctx.fillRect(fireTrail[i].x, fireTrail[i].y, ballSize, ballSize);
+        }
+
+        // Ball
+        ctx.fillStyle = "#00ffff";
+        ctx.fillRect(ball.x, ball.y, ballSize, ballSize);
+
+        // Paddles
+        ctx.fillStyle = "#0ff";
+        ctx.fillRect(player1.x, player1.y, paddleWidth, paddleHeight);
+        ctx.fillRect(player2.x, player2.y, paddleWidth, paddleHeight);
+
+        // HUD
+        ctx.fillStyle = "#88ffff";
+        ctx.font = "12px monospace";
+        ctx.fillText(`P1: ${player1.score}`, 16, 16);
+        ctx.fillText(`P2: ${player2.score}`, canvas.width - 64, 16);
+        ctx.fillText(`HIGH: ${highScore}`, canvas.width / 2 - 30, 16);
+
+        ctx.fillText(
+          `${isTwoPlayer ? "2P MODE" : "1P - " + difficulty.toUpperCase()}`,
+          canvas.width / 2 - 50,
+          canvas.height - 10
+        );
+        if (difficulty === "impossible" && !isTwoPlayer) {
+          ctx.fillText(
+            `SPD x${speedMultiplier.toFixed(2)}`,
+            canvas.width / 2 - 25,
+            28
+          );
+        }
+
+        // Pause Screen
+        if (gamePaused) {
+          ctx.fillStyle = "#0ff";
+          ctx.font = "24px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("GAME PAUSED", canvas.width / 2, canvas.height / 2 - 10);
+          ctx.font = "12px monospace";
+          ctx.fillText(
+            "Press SPACE to continue",
+            canvas.width / 2,
+            canvas.height / 2 + 10
+          );
+          ctx.textAlign = "start";
+        }
+
+        // Help
+        document.getElementById("controls").style.display = showHelp
+          ? "block"
+          : "none";
+      }
+
+      function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      // Controls
+      const keys = {};
+      document.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+
+        if (e.key === "w") player1.dy = -paddleSpeed;
+        if (e.key === "s") player1.dy = paddleSpeed;
+
+        if (isTwoPlayer) {
+          if (e.key === "ArrowUp") player2.dy = -paddleSpeed;
+          if (e.key === "ArrowDown") player2.dy = paddleSpeed;
+        }
+
+        if (e.key.toLowerCase() === "m") {
+          isTwoPlayer = !isTwoPlayer;
+          resetGame();
+        }
+
+        if (!isTwoPlayer) {
+          if (e.key === "1") difficulty = "easy";
+          if (e.key === "2") difficulty = "normal";
+          if (e.key === "3") difficulty = "impossible";
+        }
+
+        if (e.code === "Escape") {
+          gamePaused = true;
+        }
+
+        if (e.code === "Space" && gamePaused) {
+          gamePaused = false;
+          resetBall(Math.random() > 0.5 ? 1 : -1);
+        }
+
+        if (e.key.toLowerCase() === "h") {
+          showHelp = !showHelp;
+        }
+      });
+
+      document.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+        if (!keys["w"] && !keys["s"]) player1.dy = 0;
+        if (!keys["ArrowUp"] && !keys["ArrowDown"]) player2.dy = 0;
+      });
+
+      resetBall();
+      loop();
+    </script>
+  </body>
+</html>
