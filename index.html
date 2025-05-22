@@ -76,23 +76,34 @@
       let highScore = 0;
       let gamePaused = false;
       let showHelp = false;
+      let gameOver = false;
+      let winner = "";
+      let blinkTimer = 0;
 
       let player1 = {
         x: 8,
         y: canvas.height / 2 - paddleHeight / 2,
         score: 0,
         dy: 0,
+        health: 3,
       };
+
       let player2 = {
         x: canvas.width - paddleWidth - 8,
         y: canvas.height / 2 - paddleHeight / 2,
         score: 0,
         dy: 0,
+        health: 3,
       };
+      player1.health = 3;
+      player2.health = 3;
+
       let ball = { x: 0, y: 0, vx: 0, vy: 0 };
 
       let ballTrail = [];
       let fireTrail = [];
+      let particles = [];
+
       let fireBoostFrames = 0;
       let maxFireFrames = 150;
 
@@ -104,14 +115,40 @@
         ballTrail = [];
       }
 
-      function resetGame() {
+      function resetGame(winnerName = "") {
         highScore = Math.max(highScore, player1.score, player2.score);
-        player1.score = 0;
-        player2.score = 0;
+        gamePaused = true;
+
+        if (winnerName) {
+          gameOver = true;
+          winner = winnerName;
+
+          // Reset health for next match
+          player1.health = 3;
+          player2.health = 3;
+
+          // Optional: reset scores or keep them
+          player1.score = 0;
+          player2.score = 0;
+        }
+
         speedMultiplier = 1;
         speedTimer = 0;
         resetBall(Math.random() > 0.5 ? 1 : -1);
-        gamePaused = true;
+      }
+
+      function triggerParticles(x, y, isCrit = false) {
+        for (let i = 0; i < (isCrit ? 25 : 10); i++) {
+          particles.push({
+            x,
+            y,
+            dx: (Math.random() - 0.5) * (isCrit ? 6 : 3),
+            dy: (Math.random() - 0.5) * (isCrit ? 6 : 3),
+            alpha: 1,
+            color: isCrit ? `hsl(${Math.random() * 360}, 100%, 60%)` : "white",
+            radius: isCrit ? 3 : 2,
+          });
+        }
       }
 
       function update() {
@@ -169,6 +206,9 @@
             player === player1
           ) {
             ball.vx *= -1;
+            if (player === player1) player1.score++;
+            if (player === player2) player2.score++;
+
             ball.x = player.x + paddleWidth;
 
             if (isCornerHit) {
@@ -184,6 +224,9 @@
             player === player2
           ) {
             ball.vx *= -1;
+            if (player === player1) player1.score++;
+            if (player === player2) player2.score++;
+
             ball.x = player.x - ballSize;
 
             if (isCornerHit) {
@@ -226,14 +269,32 @@
           }
         }
 
-        // Scoring
         if (ball.x <= 0) {
-          player2.score++;
-          resetGame();
+          if (player1.health > 0) player1.health--;
+
+          if (player1.health <= 0) {
+            player1.health = 0; // Clamp to 0
+            resetGame("Player 2");
+            return; // Stop further updates
+          }
+
+          resetBall(1);
+          gamePaused = true;
+          return;
         }
+
         if (ball.x + ballSize >= canvas.width) {
-          player1.score++;
-          resetGame();
+          if (player2.health > 0) player2.health--;
+
+          if (player2.health <= 0) {
+            player2.health = 0; // Clamp to 0
+            resetGame("Player 1");
+            return; // Stop further updates
+          }
+
+          resetBall(-1);
+          gamePaused = true;
+          return;
         }
 
         // Speed ramp-up in impossible mode
@@ -244,6 +305,13 @@
             speedTimer = 0;
           }
         }
+        blinkTimer++;
+        particles.forEach((p) => {
+          p.x += p.dx;
+          p.y += p.dy;
+          p.alpha -= 0.02;
+        });
+        particles = particles.filter((p) => p.alpha > 0);
       }
 
       function drawGrid() {
@@ -297,6 +365,12 @@
         ctx.fillText(`P1: ${player1.score}`, 16, 16);
         ctx.fillText(`P2: ${player2.score}`, canvas.width - 64, 16);
         ctx.fillText(`HIGH: ${highScore}`, canvas.width / 2 - 30, 16);
+        ctx.fillText(`P1: ${player1.score} HP:${player1.health}`, 16, 16);
+        ctx.fillText(
+          `P2: ${player2.score} HP:${player2.health}`,
+          canvas.width - 150,
+          16
+        );
 
         ctx.fillText(
           `${isTwoPlayer ? "2P MODE" : "1P - " + difficulty.toUpperCase()}`,
@@ -312,7 +386,7 @@
         }
 
         // Pause Screen
-        if (gamePaused) {
+        if (gamePaused && !gameOver) {
           ctx.fillStyle = "#0ff";
           ctx.font = "24px monospace";
           ctx.textAlign = "center";
@@ -326,10 +400,41 @@
           ctx.textAlign = "start";
         }
 
+        if (gameOver) {
+          ctx.fillStyle = "#0ff";
+          ctx.font = "28px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            `${winner} Wins!`,
+            canvas.width / 2,
+            canvas.height / 2 - 20
+          );
+
+          // Blinking PRESS SPACE
+          if (Math.floor(blinkTimer / 30) % 2 === 0) {
+            ctx.font = "16px monospace";
+            ctx.fillText(
+              `PRESS SPACE TO RESTART`,
+              canvas.width / 2,
+              canvas.height / 2 + 10
+            );
+          }
+
+          ctx.textAlign = "start";
+        }
+
         // Help
         document.getElementById("controls").style.display = showHelp
           ? "block"
           : "none";
+        particles.forEach((p) => {
+          ctx.globalAlpha = p.alpha;
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
       }
 
       function loop() {
@@ -366,9 +471,13 @@
           gamePaused = true;
         }
 
-        if (e.code === "Space" && gamePaused) {
+        if (e.code === "Space") {
+          if (gameOver) {
+            gameOver = false;
+            resetBall(Math.random() > 0.5 ? 1 : -1);
+          }
+
           gamePaused = false;
-          resetBall(Math.random() > 0.5 ? 1 : -1);
         }
 
         if (e.key.toLowerCase() === "h") {
